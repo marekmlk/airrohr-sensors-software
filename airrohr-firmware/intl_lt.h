@@ -1,11 +1,11 @@
 /*
- *  airRohr firmware 
+ *  airRohr firmware
  *  Copyright (C) 2016-2021  Code for Stuttgart a.o.
  *  Copyright (C) 2021-2024  Sensor.Community a.o.
- * 
+ *
  *  Lithuanian translation
- * 
- *  Tekstai turi būti kuo trumpesni 
+ *
+ *  Tekstai turi būti kuo trumpesni
  */
 
 #define INTL_LANG "LT"
@@ -34,6 +34,7 @@ const char INTL_BMP180[] PROGMEM = "BMP180 ({t}, {p})";
 const char INTL_BMX280[] PROGMEM = "BME280 ({t}, {h}, {p}), BMP280 ({t}, {p})";
 const char INTL_SHT3X[] PROGMEM = "SHT3X ({t}, {h})";
 const char INTL_SCD30[] PROGMEM = "SCD30 ({t}, {h}, CO₂)";
+const char INTL_SGP30[] PROGMEM = "SGP30 (CO₂, TVOC)";
 const char INTL_DS18B20[] PROGMEM = "DS18B20 ({t})";
 const char INTL_DNMS[] PROGMEM = "DNMS ({l_a})";
 const char INTL_DNMS_CORRECTION[] PROGMEM = "korekcija dB(A)";
@@ -115,6 +116,7 @@ const char INTL_HUMIDITY[] PROGMEM = "drėgmė";
 const char INTL_PRESSURE[] PROGMEM = "oro slėgis";
 const char INTL_DEW_POINT[] PROGMEM = "[[dew_point]]";
 const char INTL_CO2_PPM[] PROGMEM = "ppm CO₂";
+const char INTL_TVOC_PPB[] PROGMEM = "ppb TVOC";
 const char INTL_LEQ_A[] PROGMEM = "LAeq";
 const char INTL_LA_MIN[] PROGMEM = "LA min.";
 const char INTL_LA_MAX[] PROGMEM = "LA max";

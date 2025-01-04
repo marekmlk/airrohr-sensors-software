@@ -51,9 +51,9 @@
  * latest build using lib 2.6.2
  * DATA:    [====      ]  41.7% (used 34128 bytes from 81920 bytes)
  * PROGRAM: [======    ]  67.2% (used 701371 bytes from 1044464 bytes)
- *  
+ *
  ************************************************************************/
- 
+
 #include <WString.h>
 #include <pgmspace.h>
 
@@ -109,6 +109,7 @@ String SOFTWARE_VERSION(SOFTWARE_VERSION_STR);
 #include <StreamString.h>
 #include <DallasTemperature.h>
 #include <SparkFun_SCD30_Arduino_Library.h>
+#include <SparkFun_SGP30_Arduino_Library.h>
 #include <TinyGPS++.h>
 #include "./bmx280_i2c.h"
 #include "./sps30_i2c.h"
@@ -133,7 +134,7 @@ String SOFTWARE_VERSION(SOFTWARE_VERSION_STR);
 namespace cfg
 {
 	unsigned debug = DEBUG;
-	
+
 	unsigned time_for_wifi_config = 600000;
 	unsigned sending_intervall_ms = 145000;
 	bool powersave;
@@ -174,6 +175,7 @@ namespace cfg
 	char height_above_sealevel[8] = "0";
 	bool sht3x_read = SHT3X_READ;
 	bool scd30_read = SCD30_READ;
+	bool sgp30_read = SGP30_READ;
 	bool ds18b20_read = DS18B20_READ;
 	bool dnms_read = DNMS_READ;
 	char dnms_correction[LEN_DNMS_CORRECTION] = DNMS_CORRECTION;
@@ -353,6 +355,11 @@ DallasTemperature ds18b20(&oneWire);
 SCD30 scd30;
 
 /*****************************************************************
+ * SGP30 declaration                                             *
+ *****************************************************************/
+SGP30 sgp30;
+
+/*****************************************************************
  * GPS declaration                                               *
  *****************************************************************/
 TinyGPSPlus gps;
@@ -461,6 +468,8 @@ float last_value_SHT3X_H = -1.0;
 float last_value_SCD30_T = -128.0;
 float last_value_SCD30_H = -1.0;
 uint16_t last_value_SCD30_CO2 = 0;
+uint16_t last_value_SGP30_CO2 = 0;
+uint16_t last_value_SGP30_TVOC = 0;
 
 uint32_t sds_pm10_sum = 0;
 uint32_t sds_pm25_sum = 0;
@@ -579,6 +588,10 @@ unsigned long SPS30_read_counter = 0;
 unsigned long SPS30_read_error_counter = 0;
 unsigned long SPS30_read_timer = 0;
 bool sps30_init_failed = false;
+
+unsigned long last_sgp30_millis = 0;
+bool sgp30_init_failed = false;
+bool sgp30_init_finished = false;
 
 float last_value_PPD_P1 = -1.0;
 float last_value_PPD_P2 = -1.0;
@@ -977,7 +990,7 @@ static void NPM_fan_speed()
 	}
 }
 
-static String NPM_temp_humi() 
+static String NPM_temp_humi()
 {
 	uint16_t NPM_temp;
 	uint16_t NPM_humi;
@@ -1500,7 +1513,6 @@ static String form_select_lang()
 				 "<option value='ES'>Español (ES)</option>"
 				 "<option value='FR'>Français (FR)</option>"
 				 "<option value='GR'>Ελληνικά (GR)</option>"
-				 "<option value='HR'>Hrvatski (HR)</option>"
 				 "<option value='IT'>Italiano (IT)</option>"
 				 "<option value='JP'>日本語 (JP)</option>"
 				 "<option value='LT'>Lietuvių kalba (LT)</option>"
@@ -1575,9 +1587,9 @@ static bool webserver_request_auth()
 static void sendHttpRedirect()
 {
 	const IPAddress defaultIP(
-		default_ip_first_octet, 
-		default_ip_second_octet, 
-		default_ip_third_octet, 
+		default_ip_first_octet,
+		default_ip_second_octet,
+		default_ip_third_octet,
 		default_ip_fourth_octet);
 
 	//String defaultAddress = F("http://") + defaultIP.toString() + F("/config");
@@ -1789,6 +1801,12 @@ static void webserver_config_send_body_get(String &page_content)
 	add_form_checkbox_sensor(Config_ips_read, FPSTR(INTL_IPS));
 	add_form_checkbox_sensor(Config_bmp_read, FPSTR(INTL_BMP180));
 	add_form_checkbox(Config_gps_read, FPSTR(INTL_NEO6M));
+
+	// Paginate page after ~ 1500 Bytes
+	server.sendContent(page_content);
+	page_content = emptyString;
+
+	add_form_checkbox_sensor(Config_sgp30_read, FPSTR(INTL_SGP30));
 
 	// Paginate page after ~ 1500 Bytes
 	server.sendContent(page_content);
@@ -2075,6 +2093,7 @@ static void webserver_values()
 	const String unit_P("hPa");
 	const String unit_T("°C");
 	const String unit_CO2("ppm");
+	const String unit_TVOC("ppb");
 	const String unit_NC();
 	const String unit_LA(F("dB(A)"));
 	float dew_point_temp;
@@ -2166,7 +2185,7 @@ static void webserver_values()
 		add_table_pm_value(FPSTR(SENSORS_IPS), FPSTR(WEB_PM10), last_value_IPS_P1);
 		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC0k1), last_value_IPS_N01);
 		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC0k3), last_value_IPS_N03);
-		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC0k5), last_value_IPS_N05);	
+		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC0k5), last_value_IPS_N05);
 		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC1k0), last_value_IPS_N1);
 		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC2k5), last_value_IPS_N25);
 		add_table_nc_value(FPSTR(SENSORS_IPS), FPSTR(WEB_NC5k0), last_value_IPS_N5);
@@ -2237,6 +2256,12 @@ static void webserver_values()
 		add_table_value(FPSTR(SENSORS_SCD30), FPSTR(INTL_CO2_PPM), check_display_value(last_value_SCD30_CO2, 0, 0, 0), unit_CO2);
 		dew_point_temp = dew_point(last_value_SCD30_T, last_value_SCD30_H);
 		add_table_value(FPSTR(SENSORS_SCD30), FPSTR(INTL_DEW_POINT), isnan(dew_point_temp) ? "-" : String(dew_point_temp, 1), unit_T);
+		page_content += FPSTR(EMPTY_ROW);
+	}
+	if (cfg::sgp30_read)
+	{
+		add_table_value(FPSTR(SENSORS_SGP30), FPSTR(INTL_CO2_PPM), check_display_value(last_value_SGP30_CO2, 0, 0, 0), unit_CO2);
+		add_table_value(FPSTR(SENSORS_SGP30), FPSTR(INTL_TVOC_PPB), check_display_value(last_value_SGP30_TVOC, 0, 0, 0), unit_TVOC);
 		page_content += FPSTR(EMPTY_ROW);
 	}
 	if (cfg::ds18b20_read)
@@ -2731,7 +2756,7 @@ static void setup_webserver()
 	server.on(F("/favicon.ico"), webserver_favicon);
 	server.on(F(STATIC_PREFIX), webserver_static);
 	server.onNotFound(webserver_not_found);
-	
+
 
 	debug_outln_info(F("Starting Webserver... "), WiFi.localIP().toString());
 	server.begin();
@@ -2821,11 +2846,11 @@ static void wifiConfig()
 
 	WiFi.mode(WIFI_AP);
 	const IPAddress apIP(
-		default_ip_first_octet, 
-		default_ip_second_octet, 
-		default_ip_third_octet, 
+		default_ip_first_octet,
+		default_ip_second_octet,
+		default_ip_third_octet,
 		default_ip_fourth_octet);
-		
+
 	WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 	WiFi.softAP(cfg::fs_ssid, cfg::fs_pwd, selectChannelForAp());
 	// In case we create a unique password at first start
@@ -3392,6 +3417,38 @@ static void fetchSensorSCD30(String &s)
 }
 
 /*****************************************************************
+ * read SGP30 sensor values                                      *
+ *****************************************************************/
+static void fetchSensorSGP30(String &s)
+{
+	debug_outln_verbose(FPSTR(DBG_TXT_START_READING), FPSTR(SENSORS_SGP30));
+
+	const auto err = sgp30.measureAirQuality();
+
+	if (err != SGP30_SUCCESS)
+	{
+		last_value_SGP30_CO2 = 0;
+		last_value_SGP30_TVOC = 0;
+		debug_outln_error(F("SGP30 read failed"));
+	}
+	else if ((!sgp30_init_finished) && sgp30.CO2 != 400 && sgp30.TVOC != 0)
+	{
+		sgp30_init_finished = true;
+		debug_outln_info(F("SGP30 init finished"));
+	}
+	else
+	{
+		last_value_SGP30_CO2 = sgp30.CO2;
+		last_value_SGP30_TVOC = sgp30.TVOC;
+		add_Value2Json(s, F("SGP30_co2_ppm"), FPSTR(DBG_TXT_CO2PPM), last_value_SGP30_CO2);
+		add_Value2Json(s, F("SGP30_tvoc_ppb"), FPSTR(DBG_TXT_TVOCPPM), last_value_SGP30_TVOC);
+	}
+
+	debug_outln_info(FPSTR(DBG_TXT_SEP));
+	debug_outln_verbose(FPSTR(DBG_TXT_END_READING), FPSTR(SENSORS_SGP30));
+}
+
+/*****************************************************************
  * read BMP280/BME280 sensor values                              *
  *****************************************************************/
 static void fetchSensorBMX280(String &s)
@@ -3918,7 +3975,7 @@ static void fetchSensorNPM(String &s)
 				NPM_waiting_for_16 = NPM_REPLY_HEADER_16;
 		}
 
-	
+
 		if (msSince(starttime) > (cfg::sending_intervall_ms - READINGTIME_NPM_MS))
 		{ //DIMINUER LE READING TIME
 
@@ -4110,7 +4167,7 @@ static void fetchSensorIPS(String &s)
 
 			while (serialIPS.available() > 0)
 			{
-				serialIPS.read();				
+				serialIPS.read();
 			}
 
 
@@ -4133,7 +4190,7 @@ static void fetchSensorIPS(String &s)
 		}
 
 		//VIDER LE BUFFER DU START?
-	
+
 		if (msSince(starttime) > (cfg::sending_intervall_ms - READINGTIME_IPS_MS))
 		{ //DIMINUER LE READING TIME
 
@@ -4149,13 +4206,13 @@ static void fetchSensorIPS(String &s)
 
 			if (serialIPS.available() > 0)
 			{
-				serial_data = serialIPS.readString();				
+				serial_data = serialIPS.readString();
 			}
-		 
+
 
 			// while (serialIPS.available() > 0)
 			// {
-			// 	serialIPS.read();				
+			// 	serialIPS.read();
 			// }
 
 		 Debug.println(serial_data);
@@ -4177,7 +4234,7 @@ static void fetchSensorIPS(String &s)
 	int index12 = serial_data.indexOf(",PM2.5,");
 	int index13 = serial_data.indexOf(",PM5.0,");
 	int index14 = serial_data.indexOf(",PM10,");
-	int index15 = serial_data.indexOf(",IPS");	
+	int index15 = serial_data.indexOf(",IPS");
 
 	String N01_serial = serial_data.substring(index1+6,index2);
 	String N03_serial = serial_data.substring(index2+7,index3);
@@ -4238,7 +4295,7 @@ static void fetchSensorIPS(String &s)
 	UPDATE_MIN_MAX(ips_pm25_min, ips_pm25_max, pm25_serial.toFloat());
 	UPDATE_MIN_MAX(ips_pm5_min, ips_pm5_max, pm5_serial.toFloat());
 	UPDATE_MIN_MAX(ips_pm10_min, ips_pm10_max, pm10_serial.toFloat());
-	
+
 	UPDATE_MIN_MAX(ips_pm01_min_pcs, ips_pm01_max_pcs, strtoul(N01_serial.c_str(),NULL,10));
 	UPDATE_MIN_MAX(ips_pm03_min_pcs, ips_pm03_max_pcs, strtoul(N03_serial.c_str(),NULL,10));
 	UPDATE_MIN_MAX(ips_pm05_min_pcs, ips_pm05_max_pcs, strtoul(N05_serial.c_str(),NULL,10));
@@ -5051,15 +5108,6 @@ static void display_values()
 	{
 		screens[screen_count++] = 1;
 	}
-	if (cfg::npm_read)
-	{
-		screens[screen_count++] = 9;
-		screens[screen_count++] = 10; 
-	}
-	if (cfg::ips_read)
-	{
-		screens[screen_count++] = 11;	//A VOIR POUR AJOUTER DES ÈCRANS
-	}
 	if (cfg::sps30_read)
 	{
 		screens[screen_count++] = 2;
@@ -5072,22 +5120,36 @@ static void display_values()
 	{
 		screens[screen_count++] = 4;
 	}
-	if (cfg::gps_read)
+	if (cfg::sgp30_read)
 	{
 		screens[screen_count++] = 5;
 	}
-	if (cfg::dnms_read)
+	if (cfg::gps_read)
 	{
 		screens[screen_count++] = 6;
 	}
+	if (cfg::dnms_read)
+	{
+		screens[screen_count++] = 7;
+	}
 	if (cfg::display_wifi_info)
 	{
-		screens[screen_count++] = 7; // Wifi info
+		screens[screen_count++] = 8; // Wifi info
 	}
 	if (cfg::display_device_info)
 	{
-		screens[screen_count++] = 8; // chipID, firmware and count of measurements
+		screens[screen_count++] = 9; // chipID, firmware and count of measurements
 	}
+	if (cfg::npm_read)
+	{
+		screens[screen_count++] = 10;
+		screens[screen_count++] = 11;
+	}
+	if (cfg::ips_read)
+	{
+		screens[screen_count++] = 12;  //A VOIR POUR AJOUTER DES ÈCRANS
+	}
+
 	// update size of "screens" when adding more screens!
 	if (cfg::has_display || cfg::has_sh1106 || lcd_2004)
 	{
@@ -5155,6 +5217,16 @@ static void display_values()
 			display_lines[2] += " ppm";
 			break;
 		case 5:
+			display_header = "SGP30";
+			display_lines[0] = "CO2:   ";
+			display_lines[0] += check_display_value(last_value_SGP30_CO2, 0, 0, 5);
+			display_lines[0] += " ppm";
+			display_lines[1] = "TVOC:   ";
+			display_lines[1] += check_display_value(last_value_SGP30_TVOC, 0, 0, 5);
+			display_lines[1] += " ppb";
+			display_lines[2] = "";
+			break;
+		case 6:
 			display_header = "NEO6M";
 			display_lines[0] = "Lat: ";
 			display_lines[0] += check_display_value(lat_value, -200.0, 6, 10);
@@ -5163,13 +5235,13 @@ static void display_values()
 			display_lines[2] = "Alt: ";
 			display_lines[2] += check_display_value(alt_value, -1000.0, 2, 10);
 			break;
-		case 6:
+		case 7:
 			display_header = FPSTR(SENSORS_DNMS);
 			display_lines[0] = std::move(tmpl(F("LAeq: {v} db(A)"), check_display_value(la_eq_value, -1, 1, 6)));
 			display_lines[1] = std::move(tmpl(F("LA_max: {v} db(A)"), check_display_value(la_max_value, -1, 1, 6)));
 			display_lines[2] = std::move(tmpl(F("LA_min: {v} db(A)"), check_display_value(la_min_value, -1, 1, 6)));
 			break;
-		case 7:
+		case 8:
 			display_header = F("Wifi info");
 			display_lines[0] = "IP: ";
 			display_lines[0] += WiFi.localIP().toString();
@@ -5177,7 +5249,7 @@ static void display_values()
 			display_lines[1] += WiFi.SSID();
 			display_lines[2] = std::move(tmpl(F("Signal: {v} %"), String(calcWiFiSignalQuality(last_signal_strength))));
 			break;
-		case 8:
+		case 9:
 			display_header = F("Device Info");
 			display_lines[0] = "ID: ";
 			display_lines[0] += esp_chipid;
@@ -5186,20 +5258,20 @@ static void display_values()
 			display_lines[2] = F("Measurements: ");
 			display_lines[2] += String(count_sends);
 			break;
-		case 9:
+		case 10:
 			display_header = F("Tera Next PM");
 			display_lines[0] = std::move(tmpl(F("PM1: {v} µg/m³"), check_display_value(pm01_value, -1, 1, 6)));
 			display_lines[1] = std::move(tmpl(F("PM2.5: {v} µg/m³"), check_display_value(pm25_value, -1, 1, 6)));
 			display_lines[2] = std::move(tmpl(F("PM10: {v} µg/m³"), check_display_value(pm10_value, -1, 1, 6)));
 			break;
-		case 10:
+		case 11:
 			display_header = F("Tera Next PM");
 			display_lines[0] = current_state_npm;
 			display_lines[1] = F("T_NPM / RH_NPM");
 			display_lines[2] = current_th_npm;
 			break;
-		case 11:
-			display_header = F("Piera IPS-7100");
+		case 12:
+		display_header = F("Piera IPS-7100");
 			display_lines[0] = std::move(tmpl(F("PM1: {v} µg/m³"), check_display_value(pm01_value, -1, 1, 6)));
 			display_lines[1] = std::move(tmpl(F("PM2.5: {v} µg/m³"), check_display_value(pm25_value, -1, 1, 6)));
 			display_lines[2] = std::move(tmpl(F("PM10: {v} µg/m³"), check_display_value(pm10_value, -1, 1, 6)));
@@ -5283,36 +5355,40 @@ static void display_values()
 			display_lines[1] = std::move(tmpl(F("CO2: {v} ppm"), check_display_value(last_value_SCD30_CO2, 0, 0, 6)));
 			break;
 		case 5:
+			display_lines[0] = std::move(tmpl(F("CO2: {v} ppm"), check_display_value(last_value_SGP30_CO2, 0, 0, 5)));
+			display_lines[1] = std::move(tmpl(F("TVOC: {v} ppb"), check_display_value(last_value_SGP30_TVOC, 0, 0, 5)));
+			break;
+		case 6:
 			display_lines[0] = "Lat: ";
 			display_lines[0] += check_display_value(lat_value, -200.0, 6, 11);
 			display_lines[1] = "Lon: ";
 			display_lines[1] += check_display_value(lon_value, -200.0, 6, 11);
 			break;
-		case 6:
+		case 7:
 			display_lines[0] = std::move(tmpl(F("LAeq: {v} db(A)"), check_display_value(la_eq_value, -1, 1, 6)));
 			display_lines[1] = std::move(tmpl(F("LA_max: {v} db(A)"), check_display_value(la_max_value, -1, 1, 6)));
 			break;
-		case 7:
+		case 8:
 			display_lines[0] = WiFi.localIP().toString();
 			display_lines[1] = WiFi.SSID();
 			break;
-		case 8:
+		case 9:
 			display_lines[0] = "ID: ";
 			display_lines[0] += esp_chipid;
 			display_lines[1] = "FW: ";
 			display_lines[1] += SOFTWARE_VERSION;
 			break;
-		case 9:
+		case 10:
 			display_lines[0] = "PM1: ";
 			display_lines[0] += check_display_value(pm01_value, -1, 1, 6);
 			display_lines[1] = "PM2.5: ";
 			display_lines[1] += check_display_value(pm25_value, -1, 1, 6);
 			break;
-		case 10:
+		case 11:
 			display_lines[0] = current_state_npm;
 			display_lines[1] = current_th_npm;
 			break;
-		case 11:
+		case 12:
 			display_lines[0] = "PM1: ";
 			display_lines[0] += check_display_value(pm01_value, -1, 1, 6);
 			display_lines[1] = "PM2.5: ";
@@ -5357,13 +5433,13 @@ static void init_display()
 	}
 	if (cfg::has_lcd1602) {
 		lcd_1602 = new LiquidCrystal_I2C(
-			lcd_1602_default_i2c_address, 
-			lcd_1602_columns, 
+			lcd_1602_default_i2c_address,
+			lcd_1602_columns,
 			lcd_1602_rows);
 	} else if (cfg::has_lcd1602_27) {
 		lcd_1602 = new LiquidCrystal_I2C(
-			lcd_1602_alternate_i2c_address, 
-			lcd_1602_columns, 
+			lcd_1602_alternate_i2c_address,
+			lcd_1602_columns,
 			lcd_1602_rows);
 	}
 	if (lcd_1602)
@@ -5373,13 +5449,13 @@ static void init_display()
 	}
 	if (cfg::has_lcd2004) {
 		lcd_2004 = new LiquidCrystal_I2C(
-			lcd_2004_default_i2c_address, 
-			lcd_2004_columns, 
+			lcd_2004_default_i2c_address,
+			lcd_2004_columns,
 			lcd_2004_rows);
 	} else if (cfg::has_lcd2004_27) {
 		lcd_2004 = new LiquidCrystal_I2C(
-			lcd_2004_alternate_i2c_address, 
-			lcd_2004_columns, 
+			lcd_2004_alternate_i2c_address,
+			lcd_2004_columns,
 			lcd_2004_rows);
 	}
 	if (lcd_2004)
@@ -5592,7 +5668,7 @@ static void powerOnTestSensors()
 		NPM_version_date();
 		delay(3000); //prevent any buffer overload on ESP82666
 		NPM_temp_humi();
-		delay(2000); 
+		delay(2000);
 
 		if(!cfg::npm_fulltime) {
 			is_NPM_running = NPM_start_stop();
@@ -5612,7 +5688,7 @@ static void powerOnTestSensors()
 		delay(1000);
 		IPS_cmd(PmSensorCmd3::Interval); //Set interval to 0 = manual mode
 		delay(1000);
-		IPS_cmd(PmSensorCmd3::Stop); 
+		IPS_cmd(PmSensorCmd3::Stop);
 		delay(1000);
 		is_IPS_running = false;
 	}
@@ -5682,6 +5758,20 @@ static void powerOnTestSensors()
 		{
 			scd30.setMeasurementInterval(30);
 		} */
+	}
+
+	if (cfg::sgp30_read)
+	{
+		debug_outln_info(F("Read SGP30..."));
+		if (!sgp30.begin())
+		{
+			debug_outln_error(F("Check SGP30 wiring"));
+			sgp30_init_failed = true;
+		}
+		else
+		{
+			sgp30.initAirQuality();
+		}
 	}
 
 	if (cfg::ds18b20_read)
@@ -5883,7 +5973,7 @@ void setup(void)
 	}
 #endif
 
-	init_config(); 
+	init_config();
 
 	Wire.begin(I2C_PIN_SDA, I2C_PIN_SCL);
 
@@ -5980,7 +6070,7 @@ else if (cfg::ips_read)
 void loop(void)
 {
 	String result_PPD, result_SDS, result_PMS, result_HPM, result_NPM, result_IPS;
-	String result_GPS, result_DNMS, result_SCD30;
+	String result_GPS, result_DNMS, result_SCD30, result_SGP;
 
 	unsigned sum_send_time = 0;
 
@@ -5990,8 +6080,8 @@ void loop(void)
 
 	unsigned int pastTime = act_milli - last_page_load;
 	bool keepAlive = pastTime < KEEP_ALIVE_TIME_MS;
-	unsigned long sleep = send_now || keepAlive 
-		? 0 
+	unsigned long sleep = send_now || keepAlive
+		? 0
 		: SLEEPTIME_MS;
 
 	// Wait at least 30s for each NTP server to sync
@@ -6060,7 +6150,7 @@ void loop(void)
 		{
 			starttime_NPM = act_milli;
 			fetchSensorNPM(result_NPM);
-		}	
+		}
 	}
 	if(cfg::ips_read)
 	{
@@ -6068,7 +6158,7 @@ void loop(void)
 		{
 			starttime_IPS = act_milli;
 			fetchSensorIPS(result_IPS);
-		}	
+		}
 	}
 	if ((msSince(starttime_SDS) > SAMPLETIME_SDS_MS) || send_now)
 	{
@@ -6107,6 +6197,12 @@ void loop(void)
 	{
 		fetchSensorSCD30(result_SCD30);
 		last_scd30_millis = act_milli;
+	}
+
+	if ((msSince(last_sgp30_millis) > SGP30_UPDATE_INTERVAL_MS) && cfg::sgp30_read && (!sgp30_init_failed))
+	{
+		fetchSensorSGP30(result_SGP);
+		last_sgp30_millis = act_milli;
 	}
 
 	if ((msSince(last_display_millis) > DISPLAY_UPDATE_INTERVAL_MS) &&

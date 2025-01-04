@@ -280,6 +280,10 @@ static const char MEASUREMENT_NAME_INFLUX[] PROGMEM = "feinstaub";
 #define SCD30_READ 0
 #define SCD30_API_PIN 17
 
+// SGP30 CO2, TVOC
+#define SGP30_READ 0
+#define SGP30_UPDATE_INTERVAL_MS 1000   // waiting time after last reading measurement data in ms
+
 // DS18B20, temperature
 #define DS18B20_READ 0
 #define DS18B20_API_PIN 13

@@ -47,6 +47,7 @@ enum ConfigShapeId {
 	Config_bmx280_read,
 	Config_sht3x_read,
 	Config_scd30_read,
+	Config_sgp30_read,
 	Config_ds18b20_read,
 	Config_dnms_read,
 	Config_dnms_correction,
@@ -119,6 +120,7 @@ static constexpr char CFG_KEY_BMP_READ[] PROGMEM = "bmp_read";
 static constexpr char CFG_KEY_BMX280_READ[] PROGMEM = "bmx280_read";
 static constexpr char CFG_KEY_SHT3X_READ[] PROGMEM = "sht3x_read";
 static constexpr char CFG_KEY_SCD30_READ[] PROGMEM = "scd30_read";
+static constexpr char CFG_KEY_SGP30_READ[] PROGMEM = "sgp30_read";
 static constexpr char CFG_KEY_DS18B20_READ[] PROGMEM = "ds18b20_read";
 static constexpr char CFG_KEY_DNMS_READ[] PROGMEM = "dnms_read";
 static constexpr char CFG_KEY_DNMS_CORRECTION[] PROGMEM = "dnms_correction";
@@ -191,6 +193,7 @@ static constexpr ConfigShapeEntry configShape[] PROGMEM = {
 	{ Config_Type_Bool, 0, CFG_KEY_BMX280_READ, &cfg::bmx280_read },
 	{ Config_Type_Bool, 0, CFG_KEY_SHT3X_READ, &cfg::sht3x_read },
 	{ Config_Type_Bool, 0, CFG_KEY_SCD30_READ, &cfg::scd30_read },
+	{ Config_Type_Bool, 0, CFG_KEY_SGP30_READ, &cfg::sgp30_read },
 	{ Config_Type_Bool, 0, CFG_KEY_DS18B20_READ, &cfg::ds18b20_read },
 	{ Config_Type_Bool, 0, CFG_KEY_DNMS_READ, &cfg::dnms_read },
 	{ Config_Type_String, sizeof(cfg::dnms_correction)-1, CFG_KEY_DNMS_CORRECTION, cfg::dnms_correction },
